@@ -1,0 +1,58 @@
+Report:
+	- 7011_A9_project report_GarbageClassify.pdf
+
+
+PPT Sildes:
+	- 7011_A9_project slides_GarbageClassify.pdf
+
+
+Presentation Video:
+	- 7011_A9_project presentation_GarbageClassify.mp4
+
+
+Code:
+	- 7011_A9_project_GarbageClassify.ipynb
+	- 7011_A9_project_GarbageClassify.html
+	- Intermediate file: image_i_and_label_i.csv
+	  Or Google Drive Link:
+	  https://drive.google.com/file/d/1qwrrxG1RvEDkbFniMYBO6w-wxh28b_fh/view?usp=sharing
+
+
+Orginal Data:
+	Get original Dataset by ONE of following two methods (2 is recommended).
+
+	1. Data Source
+	- The train data: 
+	   https://modelarts-competitions.obs.cn-north-1.myhuaweicloud.com/garbage_classify/dataset/garbage_classify.zip. 
+	   (It is a zip file.After unzip the file, in 'garbage_classify' folder there is a 'train_data' folder and a JSON file in it. The 'train_data' folder contains all images and labels. The JSON file states the classify rule.)
+	- The test data: 
+	   https://pan.baidu.com/s/1SulD2MqZx_U891JXeI2-2g (password: epgs).
+	   (After downloading, in 'garbage_classify_et' folder there is a 'train_data' folder. We manually rename the data folder as “test_data” and move to “garbage_classify” folder.)
+
+	2. Dataset folder
+	Or you can directly get the whole file from our Google Drive.
+	- Google Drive Link:
+	   https://drive.google.com/drive/folders/1HhXY_XcYGjf6758cvR_foBRricWzONQf?usp=sharing
+
+
+Data after reorganization:
+	After running Python code part3.Data Preparation, the whole 'garbage_classify' folder will been re-organized.
+	Each time when we want to train a new model, just use this folder and run Python code from part4.Load Data.
+	- Google Drive Link:
+	   https://drive.google.com/drive/folders/1roIKdeHbMIgPV6k9G3axwPSfmm7p6ALa?usp=sharing
+
+
+Training Results:
+	- Google Drive Link of All training result:
+	   https://drive.google.com/drive/folders/14oXS8VCuvrrhoWhGLlnOKp5r17ULuPgL?usp=sharing
+	- Google Drive Link of Final model (ResNext50,finetuning,SGD,lr=0.0001,num_epoch=40,weight decay=54-e, test accuracy=87.18%):
+	   https://drive.google.com/drive/folders/10CaEmUnxRJE1ttxmOOZtGyZKatUKhhX6?usp=sharing
+	
+
+Final Model:
+	- Google Drive Link of final pth file （net_040.pth）:
+	   https://drive.google.com/file/d/12pJpfaNef17BcQZAXmKHACRTGTlkQZNb/view?usp=sharing
+
+
+Prediction Example:
+	- predict_example.jpg
