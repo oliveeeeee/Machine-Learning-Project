@@ -1,0 +1,552 @@
+---
+title: "Group Assignment"
+author: "Jiatao Li"
+date: "2020/01/10"
+output: html_document
+---
+
+```{r}
+# Load Data
+library(readr)
+predictors <- read_csv("predictors.csv")
+```
+
+```{r}
+# Transfer data into time series
+library(tseries)
+transport_ts = ts(predictors[,3:8],start = c(2005,1),frequency = 12)
+```
+
+```{r}
+library(dplyr)
+library(fpp2)
+library(TSA)
+# Summary statistics
+transport_ts[,"Population"] %>%
+  stl(t.window=13, s.window="periodic", robust=TRUE) %>%
+  autoplot() + ggtitle("Population")
+
+transport_ts[,"Air"] %>%
+  stl(t.window=13, s.window="periodic", robust=TRUE) %>%
+  autoplot() + ggtitle("Air")
+
+transport_ts[,"GDP"] %>%
+  stl(t.window=13, s.window="periodic", robust=TRUE) %>%
+  autoplot() + ggtitle("GDP")
+transport_ts[,"ServiceIndustry"] %>%
+  stl(t.window=13, s.window="periodic", robust=TRUE) %>%
+  autoplot() + ggtitle("ServiceIndustry")
+transport_ts[,"MigrantWorker"] %>%
+  stl(t.window=13, s.window="periodic", robust=TRUE) %>%
+  autoplot() + ggtitle("MigrantWorker")
+transport_ts[,"Tourist"] %>%
+  stl(t.window=13, s.window="periodic", robust=TRUE) %>%
+  autoplot() + ggtitle("Tourist")
+```
+
+# Population: ARIMA(0,2,1)
+## stationarization
+```{r}
+library(fpp2)
+library(TSA)
+autoplot(transport_ts[,"Population"]) + ylab('Population')
+#original data has strong trend, need differencing
+nsdiffs(transport_ts[,"Population"]) #D=0
+ndiffs(transport_ts[,"Population"]) #d=2
+ggtsdisplay(diff(transport_ts[,"Population"]))
+adf.test(diff(transport_ts[,"Population"])) #after diff once, ts is still not stationary, need diff
+ggtsdisplay(diff(diff(transport_ts[,"Population"]))) # AR(3) or MA(1)
+adf.test(diff(diff(transport_ts[,"Population"]))) #after diff twice, ts is stationary
+```
+## choose model
+```{r}
+fit1 <- auto.arima(transport_ts[,"Population"], d=2, stepwise = FALSE) #ARIMA(0,2,0)(2,0,2)[12]
+fit1 #all coefficients are not significant
+```
+```{r}
+fit1.ar3 <- Arima(transport_ts[,"Population"], order = c(3,2,0))
+fit1.ar3 #all coefficients are significant
+checkresiduals(fit1.ar3) #residuals is not white noise
+fit1.ma1 <- Arima(transport_ts[,"Population"], order = c(0,2,1))
+fit1.ma1 #all coefficients are significant
+checkresiduals(fit1.ma1) #residuals is white noise
+#final model: ARIMA(0,2,1)
+Population_stationary <- diff(diff(transport_ts[,"Population"]))
+Population <- transport_ts[,"Population"]
+```
+## predict
+```{r}
+fc1 <- forecast(fit1.ma1,h=13)
+fc1
+autoplot(fc1) + ylab('Population')
+autoplot(fc1, xlim = c(2017,2021), ylim = c(138000,142000))
+```
+
+
+# Migrant Worker: ARIMA(0,2,0)(2,0,0)[12]
+## stationarization
+```{r}
+autoplot(transport_ts[,"MigrantWorker"])
+nsdiffs(transport_ts[,"MigrantWorker"])#D=0
+ndiffs(transport_ts[,"MigrantWorker"])#d=2
+ggtsdisplay(diff(transport_ts[,"MigrantWorker"]))
+adf.test(diff(transport_ts[,"MigrantWorker"])) #after diff once, ts still not stationary
+ggtsdisplay(diff(diff(transport_ts[,"MigrantWorker"]))) #seasonal AR(2) or seasonal MA(2)
+adf.test(diff(diff(transport_ts[,"MigrantWorker"]))) #after diff twice, ts is stationary
+```
+## choose model
+```{r}
+fit2 <- auto.arima(transport_ts[,"MigrantWorker"], d = 2, stepwise = FALSE) #ARIMA(0,2,0)(2,0,1)[12]
+fit2 #all variables are significant
+checkresiduals(fit2) #residuals is whitenoise
+autoplot(fit2)
+```
+```{r}
+#seasonal AR
+fit2.sar2 <- Arima(transport_ts[,"MigrantWorker"], order = c(0,2,0), seasonal = c(2,0,0))
+fit2.sar2 #sar1 is not significant
+fit2.sar2.1 <- Arima(transport_ts[,"MigrantWorker"], order = c(0,2,0), seasonal = c(2,0,0), fixed = c(0,NA)) #ARIMA(0,2,0)(2,0,0)[12], sar1 = 0
+fit2.sar2.1 #all coefficients are significant, aicc=-1338.62
+checkresiduals(fit2.sar2.1) #residuals is whitenoise
+autoplot(fit2.sar2.1)
+#seasonal MA
+fit2.sma2 <- Arima(transport_ts[,"MigrantWorker"], order = c(0,2,0), seasonal = c(0,0,2))
+fit2.sma2 #sar2 is not significant
+fit2.sma2.1 <- Arima(transport_ts[,"MigrantWorker"], order = c(0,2,0), seasonal = c(0,0,2), fixed = c(0,NA))
+fit2.sma2.1 #all coefficients are significant, aicc=-1380.24
+checkresiduals(fit2.sma2.1) #residuals is whitenoise
+autoplot(fit2.sma2.1) #MA is not invertible, do not take into consideration
+```
+```{r}
+#seasonal ARMA
+fit2.sarma <- Arima(transport_ts[,"MigrantWorker"], order = c(0,2,0), seasonal = c(1,0,1)) #ARIMA(0,2,0)(1,0,1)[12]
+fit2.sarma #all coefficients are significant, aicc=-1325.87
+checkresiduals(fit2.sarma) #residuals past the Ljung-Box test, but ACF lag 24 is significant 
+```
+```{r}
+#cross validation
+f2.sar2 <- function(x,h){
+  forecast(Arima(x,order = c(0,2,0), seasonal = c(2,0,0)), fixed = c(0,NA), h = h)
+}
+# f2.sma2 <- function(x,h){
+#   forecast(Arima(x,order = c(0,2,0), seasonal = c(0,0,2)),fixed = c(0,NA), h = h)
+# }
+f2.sarma <- function(x,h){
+  forecast(Arima(x,order = c(0,2,0), seasonal = c(1,0,1)),h = h)
+}
+e1 <- tsCV(transport_ts[,"MigrantWorker"], f2.sar2, h=1)
+# e2 <- tsCV(transport_ts[,"MigrantWorker"], f2.sma2, h=1)
+e3 <- tsCV(transport_ts[,"MigrantWorker"], f2.sarma, h=1)
+#tsCV MSE
+mean(e1^2, na.rm = TRUE) #smallest, ARIMA(0,2,0)(2,0,0)[12]
+# mean(e2^2, na.rm = TRUE) #smallest, ARIMA(0,2,0)(0,0,2)[12]
+mean(e3^2, na.rm = TRUE)
+#final model: ARIMA(0,2,0)(2,0,0)[12], ar1=0
+MigrantWorker_stationary <- diff(diff(transport_ts[,"MigrantWorker"]))
+MigrantWorker <- transport_ts[,"MigrantWorker"]
+```
+## forecast
+```{r}
+#from both aicc and tsCV MSE, ARIMA(0,2,0)(2,0,0)[12] is the best model
+fc2 <- forecast(fit2.sar2.1, h = 13)
+fc2
+autoplot(transport_ts[,"MigrantWorker"])+ylab('MigrantWorker')
+autoplot(fc2) + ylab('MigrantWorker')
+autoplot(fc2, xlim = c(2015,2021), ylim = c(11,14.5))
+```
+
+
+# Tourist
+## stationarization
+```{r}
+autoplot(transport_ts[,"Tourist"])
+nsdiffs(transport_ts[,"Tourist"])
+ndiffs(transport_ts[,"Tourist"])
+ggtsdisplay(diff(transport_ts[,"Tourist"]))
+adf.test(diff(transport_ts[,"Tourist"])) #after diff once, ts is still not stationary
+ggtsdisplay(diff(diff(transport_ts[,"Tourist"])))
+adf.test(diff(diff(transport_ts[,"Tourist"]))) #after diff twice, ts is stationary
+```
+## choose model
+```{r}
+fit3 <- auto.arima(transport_ts[,"Tourist"],d = 2, stepwise = FALSE) #ARIMA(0,2,0)(0,0,2)[12]
+fit3 #sma2 is not significant
+fit3.sma1 <- Arima(transport_ts[,"Tourist"], order = c(0,2,0), seasonal = c(0,0,1))
+fit3.sma1 #all coefficients are significant
+checkresiduals(fit3.sma1) #residuals is whitenoise
+#final model: ARIMA(0,2,0)(0,0,1)[12]
+Tourist_stationary <- diff(diff(transport_ts[,"Tourist"]))
+Tourist <- transport_ts[,"Tourist"]
+```
+## forecast
+```{r}
+fc3 <- forecast(fit3.sma1, h=13)
+fc3
+autoplot(fc3)
+autoplot(fc3, xlim = c(2015,2021), ylim = c(3e+05,7e+05))
+```
+
+# GDP
+## Transform
+```{r}
+#Autoplot and transformation
+library(fpp2)
+GDP = transport_ts[,2]
+lambda_GDP <-BoxCox.lambda(GDP)
+autoplot(BoxCox(GDP, lambda_GDP)) + ylab('GDP(BoxCox)')
+GDP_transformed = BoxCox(GDP, lambda_GDP)
+```
+
+## p d q and seasonality
+
+```{r}
+library(dplyr)
+# Confirm differencing and seasonal differencing
+GDP_transformed %>% nsdiffs()
+GDP_transformed %>% diff(12) %>% ndiffs()
+# Pass the test
+GDP_transformed %>% diff(12) %>%diff(lag=1) %>% adf.test()
+# Plot Acf,Pacf,Eacf.
+library(TSA)
+ggtsdisplay(GDP_transformed %>% diff(12) %>% diff(lag=1))
+eacf(GDP_transformed %>% diff(12) %>% diff(lag=1))
+ggAcf(GDP_transformed %>% diff(12) %>% diff(lag=1))
+ggPacf(GDP_transformed %>% diff(12) %>% diff(lag=1))
+GDP_stationary <- GDP_transformed %>% diff(12) %>% diff(lag=1)
+```
+
+## Model
+```{r}
+# Choosing 001012 based on Acf Pacf. Adding 1 on pqPQ, we got many candidate model and finally select the one with smallest AICc(013013)
+Arima(GDP_transformed, order=c(0,1,1), seasonal=c(0,1,2))
+Arima(GDP_transformed, order=c(0,1,3), seasonal=c(0,1,3))
+
+fit_GDP <- Arima(GDP_transformed, order=c(0,1,3), seasonal=c(0,1,3))
+fit_GDP %>% residuals() %>% ggtsdisplay()
+fit_GDP %>% checkresiduals()
+auto.arima(GDP_transformed)
+
+fit_GDP %>% forecast(h=13) %>% autoplot() + ylab('GDP(BoxCox)')
+fc_GDP <- fit_GDP %>% forecast(h=13)
+```
+
+# Service Industry
+## Transform
+```{r}
+library(fpp2)
+SI = transport_ts[,3]
+lambda_SI <-BoxCox.lambda(SI)
+autoplot(BoxCox(SI, lambda_SI)) + ylab('SI(BoxCox)')
+SI_transformed = BoxCox(SI, lambda_SI)
+```
+
+## p d q and seasonality
+
+```{r}
+library(dplyr)
+SI_transformed %>% diff(12) %>% ndiffs()
+
+SI_transformed %>% diff(12) %>% diff(lag=1) %>% adf.test()
+
+library(TSA)
+ggtsdisplay(SI_transformed %>% diff(12) %>% diff(lag=1))
+eacf(SI_transformed %>% diff(12) %>% diff(lag=1))
+ggAcf(SI_transformed %>% diff(12) %>% diff(lag=1))
+ggPacf(SI_transformed %>% diff(12) %>% diff(lag=1))
+SI_stationary <- SI_transformed %>% diff(12) %>% diff(lag=1)
+```
+
+## Model
+```{r}
+Arima(SI_transformed, order=c(0,1,1), seasonal=c(2,1,1))
+Arima(SI_transformed, order=c(0,1,0), seasonal=c(2,1,0))
+Arima(SI_transformed, order=c(0,1,0), seasonal=c(2,1,1))
+Arima(SI_transformed, order=c(0,1,0), seasonal=c(2,1,2))
+
+fit_SI <- Arima(SI_transformed, order=c(0,1,0), seasonal=c(2,1,0))
+fit_SI %>% residuals() %>% ggtsdisplay()
+fit_SI %>% checkresiduals()
+auto.arima(SI_transformed)
+
+fit_SI %>% forecast(h=13) %>% autoplot() + ylab('SI(BoxCox)')
+```
+
+
+# Air
+## Transform
+```{r}
+library(fpp2)
+Air = transport_ts[,1]
+lambda_Air <-BoxCox.lambda(Air)
+autoplot(BoxCox(Air, lambda_Air)) + ylab('Air(BoxCox)')
+Air_transformed = BoxCox(Air, lambda_Air)
+```
+
+## p d q and seasonality
+
+```{r}
+library(dplyr)
+Air_transformed %>% nsdiffs()
+Air_transformed %>% diff(12) %>% ndiffs()
+
+Air_transformed %>% diff(12) %>% diff(lag=1) %>% adf.test()
+
+library(TSA)
+ggtsdisplay(Air_transformed %>% diff(12) %>% diff(lag=1))
+eacf(Air_transformed %>% diff(12) %>% diff(lag=1))
+ggAcf(Air_transformed %>% diff(12) %>% diff(lag=1))
+ggPacf(Air_transformed %>% diff(12) %>% diff(lag=1))
+Air_stationary <- Air_transformed %>% diff(12) %>% diff(lag=1)
+```
+
+## Model
+```{r}
+Arima(Air_transformed, order=c(2,1,0), seasonal=c(2,1,1))
+Arima(Air_transformed, order=c(0,1,0), seasonal=c(2,1,1))
+Arima(Air_transformed, order=c(0,1,0), seasonal=c(2,1,2))
+Arima(Air_transformed, order=c(1,1,0), seasonal=c(2,1,0))
+Arima(Air_transformed, order=c(2,1,0), seasonal=c(2,1,0))
+Arima(Air_transformed, order=c(1,1,1), seasonal=c(2,1,0))
+Arima(Air_transformed, order=c(2,1,1), seasonal=c(2,1,0))
+fit_Air <- Arima(Air_transformed, order=c(1,1,1), seasonal=c(2,1,0))
+fit_Air %>% residuals() %>% ggtsdisplay()
+fit_Air %>% checkresiduals()
+auto.arima(Air_transformed)
+
+fit_Air %>% forecast(h=13) %>% autoplot() + ylab('Air(BoxCox)')
+fc_Air <- fit_Air %>% forecast(h=13)
+```
+
+
+#Forecast of GDP and ServiceIndustry
+```{r}
+GDP_forecast12 <- fit_GDP %>% forecast(h=13)
+SI_forcast13 <- fit_SI %>% forecast(h=13)
+Air_forecast13 <- fit_Air %>% forecast(h=13)
+```
+
+
+```{r}
+Population_stationary <- diff(diff(transport_ts[,"Population"]))
+Population <- transport_ts[,"Population"]
+MigrantWorker_stationary <- diff(diff(transport_ts[,"MigrantWorker"]))
+MigrantWorker <- transport_ts[,"MigrantWorker"]
+Tourist_stationary <- diff(diff(transport_ts[,"Tourist"]))
+Tourist <- transport_ts[,"Tourist"]
+```
+
+# Y prediction: Railway ARIMA
+```{r}
+Railway <- read_csv('RailwayPassengerTrafficVolume(1).csv')[,2]
+Y <- ts(Railway, start = c(2005,1), frequency = 12)
+```
+
+## stationary
+```{r}
+autoplot(Y)
+BoxCox.lambda(Y)
+Y %>% log() %>% autoplot()
+Y %>% log() %>% nsdiffs() #1
+Y %>% log() %>% diff(12) %>% autoplot() 
+Y %>% log() %>% diff(12) %>% adf.test() #still not stationary
+Y %>% log() %>% diff(12) %>% ndiffs() #0
+Y %>% log() %>% ndiffs() #1
+Y %>% log() %>% diff() %>% autoplot()
+Y %>% log() %>% diff() %>% adf.test() #stationary
+Y %>% log() %>% diff() %>% ggtsdisplay(lag.max = 96) #ACF seasonal lags decay slowly, indicating trend
+Y %>% log() %>% diff() %>% nsdiffs() #1
+Y %>% log() %>% diff() %>% diff(12) %>% autoplot()
+Y %>% log() %>% diff() %>% diff(12) %>% adf.test()
+Y %>% log() %>% diff() %>% diff(12) %>% ggtsdisplay(lag.max = 96) #stationary, seasonal MA(2)
+```
+
+## choose model:ARIMA(2,1,1)(0,1,2)[12],aicc=-489.36
+```{r}
+fitY <- auto.arima(log(Y), d = 1, stepwise = FALSE) #ARIMA(2,1,1)(0,1,2)[12]
+fitY #all variables are significant
+checkresiduals(fitY) #residuals is whitenoise
+autoplot(fitY) #
+```
+```{r}
+#D = 1, d = 1, choose P,Q
+Arima(log(Y),order = c(0,1,0),seasonal = c(0,1,2)) #all coefficients are significant
+Arima(log(Y),order = c(0,1,0),seasonal = c(0,1,2)) %>% checkresiduals() #residuals is not whitenoise
+Arima(log(Y),order = c(0,1,0),seasonal = c(0,1,2)) %>% residuals() %>% ggtsdisplay() #MA(3) or ARMA
+Arima(log(Y),order = c(0,1,0),seasonal = c(0,1,2)) %>% residuals() %>% eacf() #ARMA(2,1) or MA(3)
+```
+
+```{r}
+Arima(log(Y),order = c(2,1,1),seasonal = c(0,1,2)) #all coefficients are significant, aicc=-489.36
+Arima(log(Y),order = c(2,1,1),seasonal = c(0,1,2)) %>% checkresiduals() #residuals is whitenoise
+Arima(log(Y),order = c(0,1,3),seasonal = c(0,1,2)) #ma2 is not significant
+Arima(log(Y),order = c(0,1,3),seasonal = c(0,1,2), fixed = c(NA,0,NA,NA,NA)) #all coefficients are significant, aicc = -483.73
+Arima(log(Y),order = c(0,1,3),seasonal = c(0,1,2), fixed = c(NA,0,NA,NA,NA)) %>% checkresiduals() #residuals is not whitenoise
+```
+```{r}
+#check redundancy, cannot be redundant
+Arima(log(Y),order = c(2,1,1),seasonal = c(0,1,1)) #all coefficients are significant
+Arima(log(Y),order = c(2,1,1),seasonal = c(0,1,1)) %>% checkresiduals() #residuals is not whitenoise
+Arima(log(Y),order = c(2,1,0),seasonal = c(0,1,2)) #all coefficients are significant
+Arima(log(Y),order = c(2,1,0),seasonal = c(0,1,2)) %>% checkresiduals() #residuals is not whitenoise
+Arima(log(Y),order = c(1,1,1),seasonal = c(0,1,2)) #ar1 is not significant
+Arima(log(Y),order = c(1,1,1),seasonal = c(0,1,2),fixed = c(0,NA,NA,NA)) #all coefficients are significant
+Arima(log(Y),order = c(1,1,1),seasonal = c(0,1,2),fixed = c(0,NA,NA,NA)) %>% checkresiduals() #residuals is not whitenoise
+```
+## forecast
+```{r}
+fcY <- forecast(fitY, h=13)
+fcY
+autoplot(fcY)
+farimaY <- function(x,h){
+  forecast(Arima(x,order = c(2,1,1),seasonal = c(0,1,2)),h=h)
+}
+e_arimaY <- tsCV(log(Y),farimaY,h=1)
+mean(e_arimaY^2,na.rm = TRUE)
+```
+```{r}
+autoplot(ts(exp(append(log(Y),fcY$mean)),start=c(2005,1),frequency = 12)) + ylab("Railway Passenger")
+```
+
+# Y prediction: regression with ARIMA residuals
+```{r,fig.height=7,fig.width=8}
+Y_stationary <- Y %>% log() %>% diff() %>% diff() %>% diff(12)
+X <- cbind(GDP_stationary, SI_stationary, Air_stationary, Population_stationary, MigrantWorker_stationary, Tourist_stationary)
+X_transformed <- cbind(GDP_transformed, SI_transformed, Air_transformed,Population, MigrantWorker, Tourist)
+X_stationary <- X_transformed %>% log() %>% diff() %>% diff() %>% diff(12)
+autoplot(X_transformed, facets = TRUE) +
+  xlab("Year") + ylab("")
+autoplot(X_transformed %>% diff() %>% diff(12), facets = TRUE) +
+  xlab("Year") + ylab("")  #not stationary
+adf.test(X_transformed[,1] %>% diff() %>% diff() %>% diff(12))
+adf.test(X_transformed[,2] %>% diff() %>% diff() %>% diff(12))
+adf.test(X_transformed[,3] %>% diff() %>% diff() %>% diff(12))
+adf.test(X_transformed[,4] %>% diff() %>% diff() %>% diff(12))
+adf.test(X_transformed[,5] %>% diff() %>% diff() %>% diff(12))
+adf.test(X_transformed[,6] %>% diff() %>% diff() %>% diff(12))
+
+autoplot(X_transformed %>% diff() %>% diff() %>% diff(12),facets = TRUE) #stationary
+autoplot(X_transformed %>% diff() %>% diff(),facets = TRUE) #not stationary
+autoplot(X_transformed %>% diff(12) %>% diff(12),facets = TRUE) #not stationary
+
+autoplot(X_transformed %>% diff() %>% diff() %>% diff(),facets = TRUE) #stationary
+adf.test(X_transformed[,1] %>% diff() %>% diff() %>% diff())
+adf.test(X_transformed[,2] %>% diff() %>% diff() %>% diff())
+adf.test(X_transformed[,3] %>% diff() %>% diff() %>% diff())
+adf.test(X_transformed[,4] %>% diff() %>% diff() %>% diff())
+adf.test(X_transformed[,5] %>% diff() %>% diff() %>% diff())
+adf.test(X_transformed[,6] %>% diff() %>% diff() %>% diff())
+```
+```{r,fig.height=7,fig.width=8}
+autoplot(transport_ts[,c("GDP","ServiceIndustry","Air","Population","MigrantWorker","Tourist")], facets = TRUE) +
+  xlab("Year") + ylab("Original")
+```
+
+
+```{r,fig.height=7,fig.width=8}
+X_transformed.1 <- X_transformed
+colnames(X_transformed.1) <- c("GDP","ServiceIndustry","Air","Population","MigrantWorker","Tourist")
+autoplot(X_transformed.1, facets = TRUE) +
+  xlab("Year") + ylab("Transformed")
+autoplot(X_transformed.1 %>% diff() %>% diff() %>% diff(12),facets = TRUE) +
+  xlab("Year") + ylab("Stationary") #stationary
+autoplot(X_transformed.1 %>% diff() %>% diff() %>% diff(),facets = TRUE) +
+  xlab("Year") + ylab("Stationary") #stationary
+```
+
+
+## d=2,D=1, NaNs produced in coefficient estimations of X predictors,aicc=-447.2
+```{r}
+auto.arima(log(Y) %>% diff() %>% diff() %>% diff(12),xreg=X_transformed %>% diff() %>% diff() %>% diff(12),stepwise = FALSE)
+```
+```{r}
+X_transformed %>% diff() %>% diff() %>% diff(12)
+```
+
+### remove Tourist,aicc=-455.36
+```{r}
+auto.arima(log(Y) %>% diff() %>% diff() %>% diff(12),xreg=X_transformed[,c(1,2,3,4,5)] %>% diff() %>% diff() %>% diff(12),stepwise = FALSE)
+```
+### remove SI,aicc=-462.59
+```{r}
+auto.arima(log(Y) %>% diff() %>% diff() %>% diff(12),xreg=X_transformed[,c(1,3,4,5)] %>% diff() %>% diff() %>% diff(12),stepwise = FALSE)
+```
+### remove Population,aicc=-462.59
+```{r}
+auto.arima(log(Y) %>% diff() %>% diff() %>% diff(12),xreg=X_transformed[,c(1,3,5)] %>% diff() %>% diff() %>% diff(12),stepwise = FALSE)
+```
+### remove MigrantWorker,aicc=-496.64
+```{r}
+auto.arima(log(Y) %>% diff() %>% diff(12),xreg=X_transformed[,c(1,3)] %>% diff() %>% diff(12),stepwise = FALSE)
+```
+### residual:ARIMA(2,0,1)(0,0,2)[12],without constant, AICC=-496.64(BEST MODEL)
+```{r}
+Arima(log(Y) %>% diff() %>% diff(12),xreg=X_transformed[,c(1,3)] %>% diff() %>% diff(12), order = c(2,0,1), include.constant = FALSE, seasonal = c(0,0,2))
+Arima(log(Y) %>% diff() %>% diff(12),xreg=X_transformed[,c(1,3)] %>% diff() %>% diff(12), order = c(2,0,1), seasonal = c(0,0,2), include.constant = FALSE) %>% checkresiduals() #whitenoise
+fit.best <- Arima(log(Y) %>% diff() %>% diff(12),xreg=X_transformed[,c(1,3)] %>% diff() %>% diff(12), order = c(2,0,1), include.constant = FALSE, seasonal = c(0,0,2))
+```
+
+### mannually choose the order,ARIMA(0,0,3,0,0,2), aicc=-492.74
+```{r}
+ggtsdisplay(residuals(fit.best,type = "regression")) # seasonal MA(2)
+adf.test(residuals(fit.best,type = "regression")) #stationary
+```
+
+
+```{r}
+Arima(log(Y) %>% diff() %>% diff(12), xreg = X_transformed[,c(1,3)] %>% diff() %>% diff(12), seasonal = c(0,0,2)) #GDP is not significant
+Arima(log(Y) %>% diff() %>% diff(12), xreg = X_transformed[,c(1,3)] %>% diff() %>% diff(12), seasonal = c(0,0,2)) %>% checkresiduals()
+Arima(log(Y) %>% diff() %>% diff(12), xreg = X_transformed[,c(1,3)] %>% diff() %>% diff(12), seasonal = c(0,0,2)) %>% residuals() %>% ggtsdisplay()
+Arima(log(Y) %>% diff() %>% diff(12), xreg = X_transformed[,c(1,3)] %>% diff() %>% diff(12), seasonal = c(0,0,2)) %>% residuals() %>% eacf() #ARMA(2,2) or MA(3)
+#P=0,D=0,Q=2
+Arima(log(Y) %>% diff() %>% diff(12), xreg = X_transformed[,c(1,3)] %>% diff() %>% diff(12), order = c(0,0,3),seasonal = c(0,0,2)) #ma2 is not significant
+Arima(log(Y) %>% diff() %>% diff(12), xreg = X_transformed[,c(1,3)] %>% diff() %>% diff(12), order = c(0,0,3),seasonal = c(0,0,2), include.constant = FALSE, fixed = c(NA,0,NA,NA,NA,NA,NA)) #all coefficients are significant
+fit.arimaX <- Arima(log(Y) %>% diff() %>% diff(12), xreg = X_transformed[,c(1,3)] %>% diff() %>% diff(12), order = c(0,0,3),seasonal = c(0,0,2), include.constant = FALSE, fixed = c(NA,0,NA,NA,NA,NA,NA)) %>% checkresiduals() #whitenoise,aicc=-492.74
+fit.arimaX
+```
+
+## d=3,aicc=-434.29
+```{r}
+auto.arima(log(Y) %>% diff() %>% diff() %>% diff(),xreg = X_transformed %>% diff() %>% diff() %>% diff(),stepwise = FALSE)
+```
+### remove tourist,aicc=-424.56
+```{r}
+auto.arima(log(Y) %>% diff() %>% diff() %>% diff(),xreg = X_transformed[,c(1,2,3,4,5)] %>% diff() %>% diff() %>% diff(),stepwise = FALSE)
+```
+### remove MigrantWorker,aicc=-497.93
+```{r}
+auto.arima(log(Y) %>% diff()  %>% diff(12),xreg = X_transformed[,c(1,2,3,4)] %>% diff() %>% diff(12),stepwise = FALSE)
+```
+### remove SI,aicc=-498.42
+```{r}
+auto.arima(log(Y) %>% diff() %>% diff(12),xreg = X_transformed[,c(1,3,4)] %>% diff() %>% diff(12),stepwise = FALSE)
+```
+### remove Population,aicc=-496.64
+```{r}
+auto.arima(log(Y) %>% diff() %>% diff(12),xreg = X_transformed[,c(1,3)] %>% diff() %>% diff(12),stepwise = FALSE)
+```
+
+## forecast
+```{r}
+x <- ts(rbind(cbind(GDP_transformed,Air_transformed),cbind(fc_GDP$mean,fc_Air$mean)),start=c(2005,1),frequency = 12)%>%diff()%>%diff(12)
+autoplot(x)
+n <- length(x)/2
+fc.best <- forecast(fit.best,xreg=x[(n-12):n,],h=13)
+fc.best
+autoplot(fc.best)
+```
+
+```{r}
+Y1 <- diff(log(Y))[(length(Y)-12):(length(Y)-1)]
+y1_12 <- Y1+fc.best$mean[1:12]
+y1.13 <- y1_12[1]+fc.best$mean[13]
+y1 <- append(y1_12,y1.13)
+y <- rep(0,13)
+for(i in seq(length(y1))){
+  y[i] <- log(Y)[length(Y)]+sum(y1[1:i])
+}
+fc.y <- exp(y)
+fc.y
+autoplot(ts(append(Y,fc.y),start = c(2005,1),frequency = 12))
+```
+
+
